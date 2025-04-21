@@ -1,0 +1,14 @@
+{
+  "name": "Lemonade-Stand-MCP-Server",
+  "version": "1.0.0",
+  "description": "MCP server for Lemonade Stand game",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "uuid": "^11.1.0"
+  }
+}
