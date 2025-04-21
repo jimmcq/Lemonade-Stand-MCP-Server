@@ -52,7 +52,7 @@ const createNewGame = () => ({
     sugar: 0,
     ice: 0
   },
-  costPerCup: 0,
+  purchaseHistory: [],  // Keep track of purchases for proper cost calculation
   pricePerCup: 0.25,
   weather: generateWeather(),
   status: 'buying'
@@ -69,16 +69,21 @@ const handleBuySupplies = (gameState, purchases) => {
 
   let totalCost = 0;
   const newInventory = { ...gameState.inventory };
+  const purchaseRecord = { ...purchases, date: gameState.day };
   
   for (const item of ['cups', 'lemons', 'sugar', 'ice']) {
     const amount = purchases[item] || 0;
-    totalCost += amount * prices[item];
+    const cost = amount * prices[item];
+    totalCost += cost;
     newInventory[item] += amount;
+    purchaseRecord[`${item}Cost`] = cost;
   }
 
   if (totalCost > gameState.money) {
     return { success: false, message: "Not enough money!" };
   }
+
+  purchaseRecord.totalCost = totalCost;
 
   return {
     success: true,
@@ -86,7 +91,7 @@ const handleBuySupplies = (gameState, purchases) => {
       ...gameState,
       money: gameState.money - totalCost,
       inventory: newInventory,
-      costPerCup: totalCost / Math.max(1, purchases.cups || 0),
+      purchaseHistory: [...gameState.purchaseHistory, purchaseRecord],
       status: 'pricing'
     }
   };
@@ -134,6 +139,30 @@ const makeRecipe = (gameState) => {
   };
 };
 
+// Calculate cost per cup based on actual ingredients used
+const calculateCostPerCup = () => {
+  const prices = {
+    cups: 0.05,
+    lemons: 0.10,
+    sugar: 0.08,
+    ice: 0.02
+  };
+  
+  const cupsPerPitcher = 10;
+  const lemonsPerPitcher = 4;
+  const sugarPerPitcher = 4;
+  const icePerPitcher = 15;
+  
+  // Calculate cost of ingredients per pitcher
+  const pitcherCost = 
+    (lemonsPerPitcher * prices.lemons) + 
+    (sugarPerPitcher * prices.sugar) + 
+    (icePerPitcher * prices.ice);
+  
+  // Calculate cost per cup including the cup itself
+  return (pitcherCost / cupsPerPitcher) + prices.cups;
+};
+
 // Handle sell lemonade
 const handleSellLemonade = (gameState) => {
   const recipe = makeRecipe(gameState);
@@ -148,20 +177,25 @@ const handleSellLemonade = (gameState) => {
     ice: 0 // ice melts every day
   };
 
-  const dailyProfit = revenue - (gameState.costPerCup * actualSales);
+  // Calculate the actual cost per cup based on recipe
+  const actualCostPerCup = calculateCostPerCup();
+  const dailyCost = actualSales * actualCostPerCup;
+  const dailyProfit = revenue - dailyCost;
   
   return {
     success: true,
     dailyResults: {
       sales: actualSales,
       revenue: revenue,
+      cost: dailyCost,
       profit: dailyProfit,
+      costPerCup: actualCostPerCup,
       potentialCustomers: potentialCustomers,
       unsatisfiedCustomers: Math.max(0, potentialCustomers - actualSales)
     },
     gameState: {
       ...gameState,
-      money: gameState.money + revenue,
+      money: gameState.money + revenue, // Revenue is added, not profit
       inventory: newInventory,
       status: 'reporting'
     }
@@ -446,6 +480,13 @@ You start with $20. Each day, you'll need to:
 - See how many customers you attract
 
 Remember: Ice melts daily, so buy just what you need!
+
+Each cup of lemonade requires:
+- 1 cup (5¢)
+- 0.4 lemons (4¢)
+- 0.4 sugar (3.2¢)
+- 1.5 ice (3¢)
+Total cost per cup: ~15.2¢
 
 Let me start a new game for you...`
           }
