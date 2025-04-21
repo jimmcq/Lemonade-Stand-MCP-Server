@@ -6,7 +6,11 @@ import {
   CallToolRequestSchema, 
   ErrorCode, 
   ListToolsRequestSchema, 
-  McpError
+  McpError,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -20,7 +24,9 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {}
+      tools: {},
+      resources: {},
+      prompts: {}
     }
   }
 );
@@ -189,7 +195,7 @@ const handleNextDay = (gameState) => {
   };
 };
 
-// Set up tools
+// Set up tools - only actions that modify state
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   console.error('Listing tools');
   return {
@@ -200,17 +206,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {}
-        }
-      },
-      {
-        name: "get_game_state",
-        description: "Get the current state of the game",
-        inputSchema: {
-          type: "object",
-          properties: {
-            gameId: { type: "string", description: "The game ID" }
-          },
-          required: ["gameId"]
         }
       },
       {
@@ -266,7 +261,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
+// Handle tool calls - only actions that modify state
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   console.error(`Tool call received: ${request.params.name}`);
   
@@ -279,19 +274,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [{
           type: "text",
           text: JSON.stringify({ gameId, gameState: initialGameState })
-        }]
-      };
-    }
-    
-    case 'get_game_state': {
-      const currentGame = games.get(request.params.arguments?.gameId);
-      if (!currentGame) {
-        throw new McpError(ErrorCode.InvalidRequest, "Game not found");
-      }
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({ gameState: currentGame })
         }]
       };
     }
@@ -373,6 +355,106 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     default:
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
   }
+});
+
+// Set up resources - read-only data access
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  console.error('Listing resources');
+  const resources = [];
+  
+  // Add a resource for each active game
+  for (const [gameId, gameState] of games.entries()) {
+    resources.push({
+      uri: `game://${gameId}`,
+      name: `Game ${gameId}`,
+      description: `Game state for Day ${gameState.day}, $${gameState.money.toFixed(2)} balance`,
+      mimeType: "application/json"
+    });
+  }
+  
+  return { resources };
+});
+
+// Handle resource reading - for reading game state
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  console.error(`Reading resource: ${request.params.uri}`);
+  
+  const gameMatch = request.params.uri.match(/^game:\/\/(.+)$/);
+  if (gameMatch) {
+    const gameId = gameMatch[1];
+    const gameState = games.get(gameId);
+    
+    if (!gameState) {
+      throw new McpError(ErrorCode.InvalidRequest, "Game not found");
+    }
+    
+    return {
+      contents: [{
+        uri: request.params.uri,
+        mimeType: "application/json",
+        text: JSON.stringify({ gameState }, null, 2)
+      }]
+    };
+  }
+  
+  throw new McpError(ErrorCode.InvalidRequest, "Unknown resource URI");
+});
+
+// Set up prompts
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  console.error('Listing prompts');
+  return {
+    prompts: [
+      {
+        name: "start_lemonade_game",
+        description: "Start a new Lemonade Stand game with an introduction",
+        arguments: []
+      }
+    ]
+  };
+});
+
+// Handle prompt retrieval
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  console.error(`Getting prompt: ${request.params.name}`);
+  
+  if (request.params.name === "start_lemonade_game") {
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: "I want to play the Lemonade Stand game."
+          }
+        },
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: `Welcome to Lemonade Stand Tycoon! 🍋
+
+You're about to embark on a 14-day journey to build your lemonade empire. Your goal is to make as much profit as possible by:
+1. Buying supplies wisely
+2. Setting the right price for your lemonade
+3. Responding to weather conditions
+
+You start with $20. Each day, you'll need to:
+- Check the weather forecast
+- Buy cups, lemons, sugar, and ice
+- Set your lemonade price
+- See how many customers you attract
+
+Remember: Ice melts daily, so buy just what you need!
+
+Let me start a new game for you...`
+          }
+        }
+      ]
+    };
+  }
+  
+  throw new McpError(ErrorCode.InvalidRequest, "Unknown prompt");
 });
 
 // Main execution
